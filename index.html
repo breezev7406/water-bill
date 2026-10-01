@@ -562,7 +562,8 @@ async function initFirebase(){
     try{
       firebase.initializeApp(FIREBASE_CONFIG);
       fireDb=firebase.firestore();
-      fireStorage=firebase.storage();
+      /* Storage requires Blaze plan — skip init, always use base64 fallback */
+      fireStorage=null;
       _fireReady=true;
     }catch(e){console.log('Firebase init error',e);_fireReady=false}
 
@@ -1266,7 +1267,6 @@ window.WB={
       h+='<div class="detail-breakdown">';
       h+='<div class="detail-row"><span class="label">개별 사용 <span style="font-size:11px;color:var(--text-tertiary)">'+rd(b.usage)+'톤<\/span><\/span><span class="value">'+fmtNum(usageAmt)+'원<\/span><\/div>';
       h+='<div class="detail-row"><span class="label">'+sn+' 분담 <span style="font-size:11px;color:var(--text-tertiary)">+'+rd(b.shared)+'톤<\/span><\/span><span class="value">+'+fmtNum(sharedAmt)+'원<\/span><\/div>';
-      h+='<div class="detail-row" style="border-top:1px solid var(--border);padding-top:6px"><span class="label" style="font-weight:700">합계 <span style="font-size:11px;color:var(--text-tertiary)">'+rd(b.allocated)+'톤<\/span><\/span><span class="value" style="font-size:15px;font-weight:700;color:var(--blue)">'+fmtNum(b.amount)+'원<\/span><\/div>';
       h+='<\/div><\/div>';
     });
     // Photos
