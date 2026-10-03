@@ -14,6 +14,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style id="app-style">
 :root {
   --primary: #3182F6; --primary-light: #EBF3FE; --primary-dark: #1B64DA;
@@ -1594,6 +1595,60 @@ window.WB={
   }
 };
 
+// OCR: extract meter reading from photo
+var _ocrBusy=false;
+async function ocrMeterReading(canvas,target){
+  if(_ocrBusy||target==='__bill')return; // skip for bill photos
+  if(typeof Tesseract==='undefined')return;
+  _ocrBusy=true;
+  try{
+    showToast('숫자 인식 중...');
+    /* Preprocess: grayscale + contrast for better OCR */
+    var c2=document.createElement('canvas');
+    var w2=Math.min(canvas.width,800),ratio=w2/canvas.width;
+    c2.width=w2;c2.height=Math.round(canvas.height*ratio);
+    var ctx2=c2.getContext('2d');
+    ctx2.drawImage(canvas,0,0,c2.width,c2.height);
+    var imgData=ctx2.getImageData(0,0,c2.width,c2.height);
+    var d=imgData.data;
+    for(var i=0;i<d.length;i+=4){
+      var gray=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+      /* increase contrast */
+      gray=gray<128?Math.max(0,gray*0.5):Math.min(255,128+(gray-128)*1.8);
+      d[i]=d[i+1]=d[i+2]=gray;
+    }
+    ctx2.putImageData(imgData,0,0);
+
+    var result=await Tesseract.recognize(c2,'kor+eng',{
+      logger:function(){}
+    });
+    var text=result.data.text||'';
+    /* Extract number sequences (integer or decimal) */
+    var nums=text.match(/\d[\d,]*\.?\d*/g);
+    if(!nums||nums.length===0){showToast('숫자를 인식하지 못했습니다');_ocrBusy=false;return}
+    /* Pick the most likely meter reading: longest number sequence */
+    var best='';
+    nums.forEach(function(n){
+      var clean=n.replace(/,/g,'');
+      if(clean.length>best.length)best=clean;
+    });
+    var val=parseFloat(best);
+    if(isNaN(val)||val<=0){showToast('숫자를 인식하지 못했습니다');_ocrBusy=false;return}
+
+    /* Fill in as current meter reading */
+    var r=getReading(currentMonth,target);
+    r.current=val;
+    openReadings[target]=true; /* open the reading detail to show */
+    dirty=true;scheduleAutoSave();
+    render();
+    showToast('검침값 인식: '+val+' — 확인해주세요!');
+  }catch(e){
+    console.log('OCR error',e);
+    /* Silently fail — photo is already saved */
+  }
+  _ocrBusy=false;
+}
+
 // Photo handler
 document.getElementById('photoInput').addEventListener('change',function(e){
   var file=e.target.files[0];if(!file)return;
@@ -1621,6 +1676,7 @@ document.getElementById('photoInput').addEventListener('change',function(e){
             else{getReading(currentMonth,target).photo=url}
             dirty=true;render();
             await publishState();
+            ocrMeterReading(canvas,target);
           }catch(e){
             /* Firebase Storage failed — fall back to small data URL */
             var small2=document.createElement('canvas');
@@ -1632,6 +1688,7 @@ document.getElementById('photoInput').addEventListener('change',function(e){
             else{getReading(currentMonth,target).photo=dataUrl2}
             dirty=true;render();
             await publishState();
+            ocrMeterReading(canvas,target);
           }
         },'image/jpeg',0.75);
       }else{
@@ -1645,6 +1702,8 @@ document.getElementById('photoInput').addEventListener('change',function(e){
         else{getReading(currentMonth,target).photo=dataUrl}
         dirty=true;render();
         await publishState();
+        /* Run OCR on the original (higher quality) canvas */
+        ocrMeterReading(canvas,target);
       }
     };
     img.src=ev.target.result;
